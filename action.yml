@@ -1,0 +1,26 @@
+name: Run Increase Index
+description: Marketplace entrypoint for running index increase logic.
+author: LorryIsLuRui
+branding:
+  icon: arrow-up-circle
+  color: blue
+inputs:
+  increase-command:
+    description: Shell command used to execute the index increase process.
+    required: true
+  working-directory:
+    description: Directory where the command will run.
+    required: false
+    default: .
+outputs:
+  run-status:
+    description: Execution status of increase index command.
+    value: ${{ steps.run.outputs.run-status }}
+runs:
+  using: composite
+  steps:
+    - id: run
+      uses: ./intelligence-code/.github/actions/run-increase-index
+      with:
+        increase-command: ${{ inputs.increase-command }}
+        working-directory: ${{ inputs.working-directory }}
