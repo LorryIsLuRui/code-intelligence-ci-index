@@ -1,26 +1,60 @@
-name: Run Increase Index
-description: Marketplace entrypoint for running index increase logic.
-author: LorryIsLuRui
+name: 'run increase index'
+description: '执行增量文件索引（仅结构化写入与状态标记）'
+author: 'LorryIsLuRui'
+
 branding:
-  icon: arrow-up-circle
-  color: blue
+    icon: 'search'
+    color: 'blue'
+
 inputs:
-  increase-command:
-    description: Shell command used to execute the index increase process.
-    required: true
-  working-directory:
-    description: Directory where the command will run.
-    required: false
-    default: .
-outputs:
-  run-status:
-    description: Execution status of increase index command.
-    value: ${{ steps.run.outputs.run-status }}
+    symbols-table:
+        description: 'Symbols 表名'
+        required: true
+        default: 'symbols'
+
 runs:
-  using: composite
-  steps:
-    - id: run
-      uses: ./intelligence-code/.github/actions/run-increase-index
-      with:
-        increase-command: ${{ inputs.increase-command }}
-        working-directory: ${{ inputs.working-directory }}
+    using: 'composite'
+    steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+          with:
+              fetch-depth: 0
+
+        - name: Setup Node.js
+          uses: actions/setup-node@v4
+          with:
+              node-version: '20'
+              cache: 'npm'
+
+        - name: Install dependencies
+          run: npm ci
+          shell: bash
+
+        - name: Calculate changed/deleted/renamed files
+          id: changed-files
+          run: |
+              if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.base_ref }}" ]; then
+                git fetch origin ${{ github.base_ref }} --depth=1
+                git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD > changed_files.txt
+                git diff --name-only --diff-filter=D origin/${{ github.base_ref }}...HEAD > deleted_files.txt
+                git diff --name-status --diff-filter=R origin/${{ github.base_ref }}...HEAD | awk '{print $2":"$3}' > renamed_files.txt
+              else
+                git diff --name-only --diff-filter=AM HEAD~1 HEAD > changed_files.txt 2>/dev/null || echo "" > changed_files.txt
+                git diff --name-only --diff-filter=D HEAD~1 HEAD > deleted_files.txt 2>/dev/null || echo "" > deleted_files.txt
+                git diff --name-status --diff-filter=R HEAD~1 HEAD | awk '{print $2":"$3}' > renamed_files.txt 2>/dev/null || echo "" > renamed_files.txt
+              fi
+
+              echo "changed_files=$(cat changed_files.txt | tr '\n' ',' | sed 's/,$//')" >> $GITHUB_OUTPUT
+              echo "deleted_files=$(cat deleted_files.txt | tr '\n' ',' | sed 's/,$//')" >> $GITHUB_OUTPUT
+              echo "renamed_files=$(cat renamed_files.txt | tr '\n' ',' | sed 's/,$//')" >> $GITHUB_OUTPUT
+          shell: bash
+
+        - name: Run incremental index
+          env:
+              SYMBOLS_TABLE: ${{ inputs.symbols-table }}
+          run: |
+              npm run ci-index -- \
+                --changed "${{ steps.changed-files.outputs.changed_files }}" \
+                --deleted "${{ steps.changed-files.outputs.deleted_files }}" \
+                --renamed "${{ steps.changed-files.outputs.renamed_files }}"
+          shell: bash
